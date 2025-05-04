@@ -26,6 +26,7 @@ library(Rtsne)
 library(irlba)
 library(png)
 library(qqconf)
+library(Matrix)
 library(lmtest)
 library(metap)
 library(multtest)
@@ -58,60 +59,37 @@ set.seed(123456)
 # Import scRNA-seq dataset
 
 
-```{Import 10X scRNA-seq dataset}
+```{Import scRNA-seq files (kallisto/bustools output)}
 
-# force v3 Seurat assay (v5 issues)
-#options(Seurat.object.assay.version = "v3")
+# Define path to kallisto_out
+base_dir <- "/media/bret/Data2/align_to_ASXL_transcriptome/kallisto_out"
 
-# 0hr timepoint
-hr0.data <- Read10X(data.dir = "/home/bret/scRNAseq_kategtf_cellranger/head_regen/outs/raw_feature_bc_matrix")
+samples <- c(
+  "0_hrs",
+  "3_hrs",
+  "6_hrs",
+  "12_hrs",
+  "18_hrs",
+  "24_hrs",
+  "36_hrs"
+)
 
-hr0 <- CreateSeuratObject(counts = hr0.data, assay = "RNA")
-class(hr0[["RNA"]])
+output_dir <- "seurat_objects"
+dir.create(output_dir, showWarnings = FALSE)
 
-# add metadata column "timepoint"
-hr0[["timepoint"]] <- "hr0"
+for (sample in samples) {
+  sample_dir <- file.path(base_dir, sample)
+  mtx <- readMM(file.path(sample_dir, "genes.mtx"))
+  barcodes <- readLines(file.path(sample_dir, "genes.barcodes.txt"))
+  genes <- readLines(file.path(sample_dir, "genes.genes.txt"))
+  
+  colnames(mtx) <- barcodes
+  rownames(mtx) <- genes
+  
+  seurat_obj <- CreateSeuratObject(counts = mtx, project = sample)
+  seurat_obj$timepoint <- sample
+}
 
-# check metadata
-hr0_metadata <- hr0[[]]
-(colnames(hr0_metadata))
-head(hr0_metadata)
-
-# 3hr timepoint
-hr3.data <- Read10X(data.dir = "/home/bret/scRNAseq_kategtf_cellranger/head_regen/outs/raw_feature_bc_matrix")
-hr3 <- CreateSeuratObject(counts = hr3.data)
-class(hr3[["RNA"]])
-hr3[["timepoint"]] <- "hr3"
-
-# 6 hr timepoint
-hr6.data <- Read10X(data.dir = "/home/bret/scRNAseq_kategtf_cellranger/head_regen/outs/raw_feature_bc_matrix")
-hr6 <- CreateSeuratObject(counts = hr6.data)
-class(hr6[["RNA"]])
-hr6[["timepoint"]] <- "hr6"
-
-# 12hr timepoint
-hr12.data <- Read10X(data.dir = "/home/bret/scRNAseq_kategtf_cellranger/head_regen/outs/raw_feature_bc_matrix")
-hr12 <- CreateSeuratObject(counts = hr12.data)
-class(hr12[["RNA"]])
-hr12[["timepoint"]] <- "hr12"
-
-# 18hr timepoint
-hr18.data <- Read10X(data.dir = "/home/bret/scRNAseq_kategtf_cellranger/head_regen/outs/raw_feature_bc_matrix")
-hr18 <- CreateSeuratObject(counts = hr18.data)
-class(hr18[["RNA"]])
-hr18[["timepoint"]] <- "hr18"
-
-# 24hr timepoint
-hr24.data <- Read10X(data.dir = "/home/bret/scRNAseq_kategtf_cellranger/head_regen/outs/raw_feature_bc_matrix")
-hr24 <- CreateSeuratObject(counts = hr24.data)
-class(hr24[["RNA"]])
-hr24[["timepoint"]] <- "hr24"
-
-# 36hr timepoint
-hr36.data <- Read10X(data.dir = "//home/bret/scRNAseq_kategtf_cellranger/head_regen/outs/raw_feature_bc_matrix")
-hr36 <- CreateSeuratObject(counts = hr36.data)
-class(hr36[["RNA"]])
-hr36[["timepoint"]] <- "hr36"
 
 # SAVE & LOAD
 save(hr0, hr3, hr6, hr12, hr18, hr24, hr36, file="hr.meta.RData")
@@ -157,7 +135,7 @@ hr.merged <- value(future({
         add.cell.ids = c("0hrs", "3hrs", "6hrs", "12hrs", "18hrs", "24hrs", "36hrs"))
 }))
 
-save(hr.merged, file = "hr.merged2025.RData")
+save(hr.merged, file = "hr.mergedASXL.RData")
 
 # report compute time
 end_time <- Sys.time()
@@ -169,7 +147,7 @@ cat("Merge compute time:", end_time - start_time)
 
 ```{r}
 # load back into RStudio
-load(file = "hr.merged2025.RData")
+load(file = "hr.mergedASXL.RData")
 
 # clean up env
 rm(hr0, hr3, hr6, hr12, hr18, hr24, hr36)
@@ -211,7 +189,7 @@ ggsave("nCells_raw", plot = nCells_raw, device = "pdf")
 ```{Data wrangling}
 
 # reload back in RStudio
-load(file = "hr.merged2025.RData")
+load(file = "hr.mergedASXL.RData")
 
 # copy cell ids into new column "timepoint"
 hr.merged[["timepoint"]] <- sapply(Cells(hr.merged), function(x) strsplit(x, "_")[[1]][[1]])
@@ -229,8 +207,8 @@ unique(hr.merged@meta.data$timepoint)
 
 
 # SAVE & LOAD          
-save(hr.merged, file = "hr.merged2025.RData")
-#load(file = "hr.merged2025.RData")
+save(hr.merged, file = "hr.mergedASXL.RData")
+#load(file = "hr.mergedASXL.RData")
 
 
 ```
