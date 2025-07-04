@@ -62,7 +62,7 @@ set.seed(123456)
 ```{Import scRNA-seq files (kallisto/bustools output)}
 
 # Define path to kallisto_out
-base_dir <- "/media/bret/Data2/align_to_ASXL_transcriptome/kallisto_out"
+base_dir <- "/media/bret/Data2/align_to_ASXL_transcriptome/kallisto_out/"
 
 samples <- c(
   "0_hrs",
@@ -79,21 +79,35 @@ dir.create(output_dir, showWarnings = FALSE)
 
 for (sample in samples) {
   sample_dir <- file.path(base_dir, sample)
-  mtx <- readMM(file.path(sample_dir, "genes.mtx"))
-  barcodes <- readLines(file.path(sample_dir, "genes.barcodes.txt"))
-  genes <- readLines(file.path(sample_dir, "genes.genes.txt"))
+   print(sample_dir)
+  print(file.exists(file.path(sample_dir, "genes.mtx")))
   
-  colnames(mtx) <- barcodes
+  mtx <- readMM(file.path(sample_dir, "genes.mtx"))
+  barcodes <- readLines(file.path(sample_dir, "genes.genes.txt"))    # gene names (rows)
+  genes <- readLines(file.path(sample_dir, "genes.barcodes.txt"))  # barcodes (columns)
+
+  
   rownames(mtx) <- genes
+  colnames(mtx) <- barcodes
+
   
   seurat_obj <- CreateSeuratObject(counts = mtx, project = sample)
-  seurat_obj$timepoint <- sample
+  seurat_obj$sample <- sample
+  
+  saveRDS(seurat_obj, file = file.path(output_dir, paste0(sample, "_seurat.RDS")))
+  
 }
 
 
+# load seurat objects
+input_dir <- "seurat_objecfts"
+rds_files <- list.files("~/Desktop/scRNAseq_ASXLaligned/seurat_objects", pattern = "\\.rds$", full.names = TRUE)
+seurat_list <- lapply(rds_files, readRDS)
+names(seurat_list) <- sub("\\.rds$", "", basename(rds_files))
+
 # SAVE & LOAD
-save(hr0, hr3, hr6, hr12, hr18, hr24, hr36, file="hr.meta.RData")
-#load(file = "hr.meta.RData")
+save(hr0, hr3, hr6, hr12, hr18, hr24, hr36, file="hr.meta.ASXL.RData")
+#load(file = "hr.meta.ASXL.RData")
 
 ```
 
@@ -115,11 +129,8 @@ R
 library(future)
 library(Seurat)
 
-load(file = "hr.meta.RData")
+load(file = "hr.meta.ASXL.RData")
 
-
-# REMOVE LATER force v3 assay (instead of v5)
-#options(Seurat.object.assay.version = "v3")
 
 # set up for parallelization 
 plan("multicore", workers = parallel::detectCores())
@@ -195,6 +206,16 @@ load(file = "hr.mergedASXL.RData")
 hr.merged[["timepoint"]] <- sapply(Cells(hr.merged), function(x) strsplit(x, "_")[[1]][[1]])
 unique(hr.merged@meta.data$timepoint)
 
+# rename columns 
+raw.metadata <- hr.merged@meta.data
+raw.metadata$cells <- rownames(raw.metadata)
+raw.metadata <- raw.metadata %>%
+  dplyr::rename(nUMI = nCount_RNA,
+                nGene = nFeature_RNA)
+hr.merged@meta.data <- raw.metadata
+head(hr.merged@meta.data)
+
+
 # REMOVE LATER other metadata wrangling
 # change hr.merged from v5 to V3
 #hr.merged[["RNA"]] <- as(object = hr.merged[["RNA"]], Class = "Assay")
@@ -204,6 +225,8 @@ unique(hr.merged@meta.data$timepoint)
 #head(metadata)
 # add cells column
 #hr.merged_metadata$cells <- rownames(hr.merged_metadata)
+
+
 
 
 # SAVE & LOAD          
@@ -217,14 +240,422 @@ save(hr.merged, file = "hr.mergedASXL.RData")
 ## Remove empty droplets
 
 ```{r}
-# first, just filter out low nCount_RNA "cells"
-hr.merged <- subset(hr.merged, subset = nCount_RNA > 200)
+# remove empty droplets
+hr.merged <- subset(hr.merged, subset = nUMI > 200)
+
+# remove low quality cells
+hr.merged <- subset(hr.merged, subset = nGene > 200)
+
+
+# Extract timepoint prefix from cell names like "0hrs_AAACCCAAGCCATCCG-1"
+timepoints <- sapply(strsplit(colnames(hr.merged), "_"), function(x) x[1])
+
+# Assign as factor
+hr.merged$timepoint <- factor(timepoints,
+                              levels = c("0hrs", "3hrs", "6hrs", "12hrs", "18hrs", "24hrs", "36hrs"))
+
+metadata <- hr.merged@meta.data
+table(metadata$timepoint)
+
+
+
+save(hr.merged, metadata, file = "hr.mergedASXL.droplets")
+#load(file= "hr.mergedASXL.droplets.RData")
+
 
 # run Cellbender (see python scripts) and import results
 # ERROR: cant pickle weakrefs 
 
 # compare Cellbender results to nCount_RNA filter
-# would go here if I could get Cellbender to work
+# would go here if I could get Cellbender to work :(
+
+
+
+
+######################## nCells, nUMI (aka nCount), & nGene (aka nFeature) #################################
+ 
+# after empty droplets removed, before normalization, scaling, or filtration!
+
+# plot (bar) nCells per timepoint
+nCells <- metadata %>%
+  ggplot(aes(x= timepoint, fill= timepoint)) +
+  geom_bar() +
+  theme() +
+  scale_y_continuous(labels = scales::label_comma(),
+                     limits = c(0,10000),
+                     n.breaks = 7) +
+  scale_fill_viridis_d() +
+  ggtitle("nCells")
+nCells
+ggsave("nCells_emptydropletsremoved", plot = nCells, device = "pdf")
+
+
+# plot nUMIs per cell (density)
+UMIdensity <- metadata %>% 
+  ggplot(aes(x=nUMI, fill= timepoint, group = timepoint)) + 
+  geom_density(alpha = 0.4, fill = "gray10") + 
+  krplot +
+  scale_x_continuous(labels = scales::label_comma(),
+                     limits = c(0,25000)) +
+  scale_y_continuous(expand=c(0,0)) +
+  ylab("cell density") +
+  ggtitle("UMIs per cell") +
+  geom_vline(xintercept = 100, color = "red")
+UMIdensity
+ggsave("UMI_density_emptydropletsremoved", plot = UMIdensity, device = "pdf")
+
+
+
+# plot nGenes per cell (density)
+genedensity <- metadata %>% 
+  ggplot(aes(x=nGene, fill= timepoint, group = timepoint)) + 
+  geom_density(alpha = 0.4, fill = "gray10") +
+  krplot +
+  scale_x_continuous(labels = scales::comma, 
+                     trans = "log10", 
+                     limits = c(10,10000), 
+                     n.breaks = 8,
+                     expand=c(0,0)) +
+  scale_y_continuous(limits = c(0,4),
+                     n.breaks = 8,
+                     expand=c(0,0)) +
+  ggtitle("nGenes per cell") +
+  # + geom_vline(xintercept = 250) +
+  ylab("log10 cell density")
+genedensity
+ggsave("nGenepercell_emptydropletsremoved", plot = genedensity, device = "pdf")
+
+
+# plot nGene vs nUMI (scatter)
+genexumi <- metadata %>% 
+  ggplot(aes(x=nUMI, y=nGene)) + 
+  geom_point(alpha = 0.3) + 
+  krplot +
+  stat_smooth(method=lm) +
+  scale_x_log10(labels = scales::comma,
+                     n.breaks = 8,
+                     limits = c(650,100000),
+                     expand=c(0,0)) +
+  scale_y_log10(labels = scales::comma,
+                expand=c(0,0)) +
+  ggtitle("nGene per nUMI")
+genexumi
+ggsave("genexumi", plot = genexumi, device = "pdf")
+
+
+# complexity scores (# genes detected per UMI)
+complexity <- metadata %>%
+  ggplot(aes(x=log10GenesPerUMI, fill=timepoint)) +
+  geom_density(alpha = 0.4) +
+  krplot +
+  scale_x_continuous(expand=c(0,0))+
+  scale_y_continuous(expand=c(0,0)) +
+  ggtitle("Complexity score") +
+  #geom_vline(xintercept = 0.8) +
+  ylab("Cell density")
+complexity
+ggsave("complexity", plot = complexity, device = "pdf")
 
 ```
+
+
+# QC Filtering (each timepoint individually)
+
+```{r}
+
+#load objects
+load(file="hr.meta.ASXL.RData")
+
+
+#Prepare each Seurat object
+## hr0 ##
+#view merged metatdata
+View(hr0@meta.data)
+# Compute novelty score and add column (logGenesPerUMI = logGenesPerCell / logUMIsPerCell)
+hr0$log10GenesPerUMI <- log10(hr0$nFeature_RNA) / log10(hr0$nCount_RNA)
+#rename columns
+metadata <- hr0@meta.data
+metadata$cells <- rownames(metadata)
+metadata <- metadata %>%
+  dplyr::rename(nUMI = nCount_RNA,
+                nGene = nFeature_RNA)
+hr0@meta.data <- metadata
+View(hr0@meta.data)
+
+## hr3 ##
+#view merged metatdata
+View(hr3@meta.data)
+# Compute novelty score and add column (logGenesPerUMI = logGenesPerCell / logUMIsPerCell)
+hr3$log10GenesPerUMI <- log10(hr3$nFeature_RNA) / log10(hr3$nCount_RNA)
+#rename columns
+metadata <- hr3@meta.data
+metadata$cells <- rownames(metadata)
+metadata <- metadata %>%
+  dplyr::rename(nUMI = nCount_RNA,
+                nGene = nFeature_RNA)
+hr3@meta.data <- metadata
+
+## hr6 ##
+#view merged metatdata
+View(hr6@meta.data)
+# Compute novelty score and add column (logGenesPerUMI = logGenesPerCell / logUMIsPerCell)
+hr6$log10GenesPerUMI <- log10(hr6$nFeature_RNA) / log10(hr6$nCount_RNA)
+#rename columns
+metadata <- hr6@meta.data
+metadata$cells <- rownames(metadata)
+metadata <- metadata %>%
+  dplyr::rename(nUMI = nCount_RNA,
+                nGene = nFeature_RNA)
+hr6@meta.data <- metadata
+
+## hr12 ##
+#view merged metatdata
+View(hr12@meta.data)
+# Compute novelty score and add column (logGenesPerUMI = logGenesPerCell / logUMIsPerCell)
+hr12$log10GenesPerUMI <- log10(hr12$nFeature_RNA) / log10(hr12$nCount_RNA)
+#rename columns
+metadata <- hr12@meta.data
+metadata$cells <- rownames(metadata)
+metadata <- metadata %>%
+  dplyr::rename(nUMI = nCount_RNA,
+                nGene = nFeature_RNA)
+hr12@meta.data <- metadata
+
+## hr18 ##
+#view merged metatdata
+View(hr18@meta.data)
+# Compute novelty score and add column (logGenesPerUMI = logGenesPerCell / logUMIsPerCell)
+hr18$log10GenesPerUMI <- log10(hr18$nFeature_RNA) / log10(hr18$nCount_RNA)
+#rename columns
+metadata <- hr18@meta.data
+metadata$cells <- rownames(metadata)
+metadata <- metadata %>%
+  dplyr::rename(nUMI = nCount_RNA,
+                nGene = nFeature_RNA)
+hr18@meta.data <- metadata
+
+## hr24 ##
+#view merged metatdata
+View(hr24@meta.data)
+# Compute novelty score and add column (logGenesPerUMI = logGenesPerCell / logUMIsPerCell)
+hr24$log10GenesPerUMI <- log10(hr24$nFeature_RNA) / log10(hr24$nCount_RNA)
+#rename columns
+metadata <- hr24@meta.data
+metadata$cells <- rownames(metadata)
+metadata <- metadata %>%
+  dplyr::rename(nUMI = nCount_RNA,
+                nGene = nFeature_RNA)
+hr24@meta.data <- metadata
+
+## hr36 ##
+#view merged metatdata
+View(hr36@meta.data)
+# Compute novelty score and add column (logGenesPerUMI = logGenesPerCell / logUMIsPerCell)
+hr36$log10GenesPerUMI <- log10(hr36$nFeature_RNA) / log10(hr36$nCount_RNA)
+#rename columns
+metadata <- hr36@meta.data
+metadata$cells <- rownames(metadata)
+metadata <- metadata %>%
+  dplyr::rename(nUMI = nCount_RNA,
+                nGene = nFeature_RNA)
+hr36@meta.data <- metadata
+
+
+##Filter each timepoint independently
+hr0f <- subset(hr0, subset = (nUMI >= 650) & 
+                 (nGene >= 250) & 
+                 (log10GenesPerUMI > 0.8))
+
+hr3f <- subset(hr3, subset = (nUMI >= 650) & 
+                 (nGene >= 250) & 
+                 (log10GenesPerUMI > 0.8))
+
+hr6f <- subset(hr6, subset = (nUMI >= 650) & 
+                 (nGene >= 250) & 
+                 (log10GenesPerUMI > 0.8))
+
+hr12f <- subset(hr12, subset = (nUMI >= 650) & 
+                  (nGene >= 250) & 
+                  (log10GenesPerUMI > 0.8))
+
+hr18f <- subset(hr18, subset = (nUMI >= 650) & 
+                  (nGene >= 250) & 
+                  (log10GenesPerUMI > 0.8))
+
+hr24f <- subset(hr24, subset = (nUMI >= 650) & 
+                  (nGene >= 250) & 
+                  (log10GenesPerUMI > 0.8))
+
+hr36f <- subset(hr36, subset = (nUMI >= 650) & 
+                  (nGene >= 250) & 
+                  (log10GenesPerUMI > 0.8))
+
+#Scatter plots
+#hr0
+hr0scatter <- FeatureScatter(hr0, feature1 = "nUMI", feature2 = "nGene")
+hr0fscatter <- FeatureScatter(hr0f, feature1 = "nUMI", feature2 = "nGene")
+svglite("hr0filter_scatter.svg")
+hr0scatter | hr0fscatter
+dev.off()
+
+#hr3
+hr3scatter <- FeatureScatter(hr3, feature1 = "nUMI", feature2 = "nGene")
+hr3fscatter <- FeatureScatter(hr3f, feature1 = "nUMI", feature2 = "nGene")
+hr3scatter | hr3fscatter
+
+#hr6
+hr6scatter <- FeatureScatter(hr6, feature1 = "nUMI", feature2 = "nGene")
+hr6fscatter <- FeatureScatter(hr6f,feature1 = "nUMI", feature2 = "nGene")
+hr6scatter | hr6fscatter
+
+#hr12
+hr12scatter <- FeatureScatter(hr12, feature1 = "nUMI", feature2 = "nGene")
+hr12fscatter <- FeatureScatter(hr12f, feature1 = "nUMI", feature2 = "nGene")
+hr12scatter | hr12fscatter
+
+#hr18
+hr18scatter <- FeatureScatter(hr18, feature1 = "nUMI", feature2 = "nGene")
+hr18fscatter <- FeatureScatter(hr18f, feature1 = "nUMI", feature2 = "nGene")
+hr18scatter | hr18fscatter
+
+#hr24
+hr24scatter <- FeatureScatter(hr24, feature1 = "nUMI", feature2 = "nGene")
+hr24fscatter <- FeatureScatter(hr24f, feature1 = "nUMI", feature2 = "nGene")
+hr24scatter | hr24fscatter
+
+#hr36
+hr36scatter <- FeatureScatter(hr36, feature1 = "nUMI", feature2 = "nGene")
+hr36fscatter <- FeatureScatter(hr36f, feature1 = "nUMI", feature2 = "nGene")
+hr36scatter | hr36fscatter
+
+#Filter hr.merged (for visualization purposes only)
+hr.merged.kg.f <- subset(hr.merged.kg, subset = (nUMI >= 650) & 
+                        (nGene >= 250) & 
+                        (log10GenesPerUMI > 0.8)
+                       )
+hr.merged.scatter <- FeatureScatter(hr.merged.kg, feature1 = "nUMI", feature2 = "nGene")
+hr.merged.fscatter <- FeatureScatter(hr.merged.kg.f, feature1 = "nUMI", feature2 = "nGene")
+svglite("hr.mergedfilter_scatter.svg")
+hr.merged.scatter | hr.merged.fscatter
+dev.off()
+
+#plot n cells per timepoint before & after filtering
+#Plot nCells per timepoint
+n <- metadata %>%
+  ggplot(aes(x=timepoint, fill=timepoint)) +
+  geom_bar(aes(x = factor(timepoint), levelorder)) +
+  #theme() +
+  scale_y_continuous(expand=c(0,0)) +
+  ggtitle("nCells per timepoint")
+
+#custom palette RdYlBu in chronological order
+chronRdYlBu_palette <- c("#d73027",
+                         "#ffffbf",
+                         "#e0f3f8",
+                         "#91bfdb",
+                         "#fc8d59",
+                         "#4575b4",
+                         "#fee090")
+
+n + scale_fill_manual(values = chronRdYlBu_palette) + DarkTheme() + guides(fill="none")
+ggsave("nCells_before_after_filtering", plot = n, device = "pdf")
+
+nf <- hr.merged.kg.f %>%
+  ggplot(aes(x=timepoint, fill=timepoint)) +
+  geom_bar(aes(x = factor(timepoint, level = timepoint))) +
+  theme() +
+  scale_y_continuous(expand=c(0,0)) +
+  ggtitle("nCells per timepoint")
+#custom palette RdYlBu in chronological order
+chronRdYlBu_palette <- c("#d73027",
+                         "#ffffbf",
+                         "#e0f3f8",
+                         "#91bfdb",
+                         "#fc8d59",
+                         "#4575b4",
+                         "#fee090")
+
+nf + scale_fill_manual(values = chronRdYlBu_palette) + DarkTheme() + guides(fill="none")
+ggsave("nCellsAfterFiltering", plot = nf, device = "pdf")
+
+
+#SAVE AND LOAD
+save(hr0f, hr12f, hr18f, hr24f, hr36f, hr3f, hr36f, hr6f, hr.merged.f, file="hr.meta.ASXL.f.RData")
+#load(file = "hr.meta.ASXL.f.RData)
+#set.seed(123456)
+
+
+########
+################# SCTransform individual timepoints #################
+########
+
+#Normalize, Scale, and find VariableFeatures for each timepoint independently
+hr0fs <- SCTransform(hr0f, vst.flavor = "v2", variable.features.n = 3000)
+hr3fs <- SCTransform(hr3f, vst.flavor = "v2", variable.features.n = 3000)
+hr6fs <- SCTransform(hr6f, vst.flavor = "v2", variable.features.n = 3000)
+hr12fs <- SCTransform(hr12f, vst.flavor = "v2", variable.features.n = 3000)
+hr18fs <- SCTransform(hr18f, vst.flavor = "v2", variable.features.n = 3000)
+hr24fs <- SCTransform(hr24f, vst.flavor = "v2", variable.features.n = 3000)
+hr36fs <- SCTransform(hr36f, vst.flavor = "v2", variable.features.n = 3000)
+
+hrfs.list <- c(hr0fs, hr3fs, hr6fs, hr12fs, hr18fs, hr24fs, hr36fs)
+
+
+#SAVE AND LOAD
+save(hr0fs, hr12fs, hr18fs, hr24fs, hr36fs, hr3fs, hr36fs, hr6fs, hrfs.list, file="hr.meta.ASXL.f.SCT.RData")
+#load(file = "hr.meta.ASXL.f.SCT.RData")
+#set.seed(123456)
+
+############
+#
+############################
+#
+############################################################### TIMEPOINT INTEGRATION ###############################################################
+#
+############################
+#
+############
+
+#Select features that are repeatedly variable across datasets for integration
+hrfs.var_features <- SelectIntegrationFeatures(object.list = hrfs.list, nfeatures = 3000)
+
+hrfs.list <- PrepSCTIntegration(hrfs.list, anchor.features = hrfs.var_features)
+
+#Identify Anchors
+hrfs.anchors <- FindIntegrationAnchors(object.list = hrfs.list, 
+                                       normalization.method = "SCT", 
+                                       anchor.features = hrfs.var_features)
+
+#Integration
+hr.int <- IntegrateData(anchorset = hrfs.anchors, normalization.method = "SCT")
+
+
+#Specify that downstream analysis is on integrated dataset
+DefaultAssay(hr.int) <- "integrated"
+
+#Regroup idents based on timepoint
+RegroupIdents(hr.int, "timepoint")
+
+
+#Reorder timepoints in chronological order
+hr.int$timepoint <- factor(hr.int$timepoint, 
+                           levels = c("hr0", "hr3", "hr6", "hr12", "hr18", "hr24", "hr36"))
+
+unique(sapply(X = strsplit(colnames(hr.int), split = "_"), FUN = "[", 1))
+
+
+#Scale and center data
+ScaleData(hr.int,
+          model.use = "linear",
+          use.umi = FALSE,
+          do.scale = TRUE,
+          do.center = TRUE)
+
+
+#SAVE AND LOAD
+save(hr.int, file="hr.int.RData")
+#load(file = "hr.int.RData")
+#set.seed(123456)
+
+
 
