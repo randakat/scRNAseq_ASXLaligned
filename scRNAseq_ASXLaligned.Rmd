@@ -140,13 +140,13 @@ options(future.globals.maxSize = 100 * 1024^3) # use <100 GB RAM
 start_time <- Sys.time()
 
 # create merged object (multicore)
-hr.merged <- value(future({
+hr.mergedASXL <- value(future({
   merge(x = hr0,
         y = list(hr3, hr6, hr12, hr18, hr24, hr36),
         add.cell.ids = c("0hrs", "3hrs", "6hrs", "12hrs", "18hrs", "24hrs", "36hrs"))
 }))
 
-save(hr.merged, file = "hr.mergedASXL.RData")
+save(hr.mergedASXL, file = "hr.mergedASXL.RData")
 
 # report compute time
 end_time <- Sys.time()
@@ -164,7 +164,7 @@ load(file = "hr.mergedASXL.RData")
 rm(hr0, hr3, hr6, hr12, hr18, hr24, hr36)
 
 
-raw.metadata <- hr.merged@meta.data
+raw.metadata <- hr.mergedASXL@meta.data
 head(raw.metadata)
 unique(raw.metadata$timepoint)
 
@@ -203,34 +203,34 @@ ggsave("nCells_raw", plot = nCells_raw, device = "pdf")
 load(file = "hr.mergedASXL.RData")
 
 # copy cell ids into new column "timepoint"
-hr.merged[["timepoint"]] <- sapply(Cells(hr.merged), function(x) strsplit(x, "_")[[1]][[1]])
-unique(hr.merged@meta.data$timepoint)
+hr.mergedASXL[["timepoint"]] <- sapply(Cells(hr.mergedASXL), function(x) strsplit(x, "_")[[1]][[1]])
+unique(hr.mergedASXL@meta.data$timepoint)
 
 # rename columns 
-raw.metadata <- hr.merged@meta.data
+raw.metadata <- hr.mergedASXL@meta.data
 raw.metadata$cells <- rownames(raw.metadata)
 raw.metadata <- raw.metadata %>%
   dplyr::rename(nUMI = nCount_RNA,
                 nGene = nFeature_RNA)
-hr.merged@meta.data <- raw.metadata
-head(hr.merged@meta.data)
+hr.mergedASXL@meta.data <- raw.metadata
+head(hr.mergedASXL@meta.data)
 
 
 # REMOVE LATER other metadata wrangling
-# change hr.merged from v5 to V3
-#hr.merged[["RNA"]] <- as(object = hr.merged[["RNA"]], Class = "Assay")
+# change hr.mergedASXL from v5 to V3
+#hr.mergedASXL[["RNA"]] <- as(object = hr.mergedASXL[["RNA"]], Class = "Assay")
 # pull metadata for custom plotting
-#metadata <- hr.merged@meta.data
+#metadata <- hr.mergedASXL@meta.data
 #unique(sapply(X = strsplit(colnames(metadata), split = "_"), FUN = "[", 1))
 #head(metadata)
 # add cells column
-#hr.merged_metadata$cells <- rownames(hr.merged_metadata)
+#hr.mergedASXL_metadata$cells <- rownames(hr.mergedASXL_metadata)
 
 
 
 
 # SAVE & LOAD          
-save(hr.merged, file = "hr.mergedASXL.RData")
+save(hr.mergedASXL, file = "hr.mergedASXLASXL.RData")
 #load(file = "hr.mergedASXL.RData")
 
 
@@ -241,25 +241,25 @@ save(hr.merged, file = "hr.mergedASXL.RData")
 
 ```{r}
 # remove empty droplets
-hr.merged <- subset(hr.merged, subset = nUMI > 200)
+hr.mergedASXL <- subset(hr.mergedASXL, subset = nUMI > 200)
 
 # remove low quality cells
-hr.merged <- subset(hr.merged, subset = nGene > 200)
+hr.mergedASXL <- subset(hr.mergedASXL, subset = nGene > 200)
 
 
 # Extract timepoint prefix from cell names like "0hrs_AAACCCAAGCCATCCG-1"
-timepoints <- sapply(strsplit(colnames(hr.merged), "_"), function(x) x[1])
+timepoints <- sapply(strsplit(colnames(hr.mergedASXL), "_"), function(x) x[1])
 
 # Assign as factor
-hr.merged$timepoint <- factor(timepoints,
+hr.mergedASXL$timepoint <- factor(timepoints,
                               levels = c("0hrs", "3hrs", "6hrs", "12hrs", "18hrs", "24hrs", "36hrs"))
 
-metadata <- hr.merged@meta.data
+metadata <- hr.mergedASXL@meta.data
 table(metadata$timepoint)
 
 
 
-save(hr.merged, metadata, file = "hr.mergedASXL.droplets")
+save(hr.mergedASXL, metadata, file = "hr.mergedASXL.droplets")
 #load(file= "hr.mergedASXL.droplets.RData")
 
 
@@ -528,13 +528,15 @@ hr36scatter <- FeatureScatter(hr36, feature1 = "nUMI", feature2 = "nGene")
 hr36fscatter <- FeatureScatter(hr36f, feature1 = "nUMI", feature2 = "nGene")
 hr36scatter | hr36fscatter
 
+
+
 #Filter hr.merged (for visualization purposes only)
-hr.merged.kg.f <- subset(hr.merged.kg, subset = (nUMI >= 650) & 
+hr.mergedASXL.f <- subset(hr.mergedASXL, subset = (nUMI >= 650) & 
                         (nGene >= 250) & 
                         (log10GenesPerUMI > 0.8)
                        )
-hr.merged.scatter <- FeatureScatter(hr.merged.kg, feature1 = "nUMI", feature2 = "nGene")
-hr.merged.fscatter <- FeatureScatter(hr.merged.kg.f, feature1 = "nUMI", feature2 = "nGene")
+hr.merged.scatter <- FeatureScatter(hr.mergedASXL, feature1 = "nUMI", feature2 = "nGene")
+hr.merged.fscatter <- FeatureScatter(hr.mergedASXL.f, feature1 = "nUMI", feature2 = "nGene")
 svglite("hr.mergedfilter_scatter.svg")
 hr.merged.scatter | hr.merged.fscatter
 dev.off()
@@ -560,7 +562,7 @@ chronRdYlBu_palette <- c("#d73027",
 n + scale_fill_manual(values = chronRdYlBu_palette) + DarkTheme() + guides(fill="none")
 ggsave("nCells_before_after_filtering", plot = n, device = "pdf")
 
-nf <- hr.merged.kg.f %>%
+nf <- hr.mergedASXL.f %>%
   ggplot(aes(x=timepoint, fill=timepoint)) +
   geom_bar(aes(x = factor(timepoint, level = timepoint))) +
   theme() +
@@ -580,7 +582,7 @@ ggsave("nCellsAfterFiltering", plot = nf, device = "pdf")
 
 
 #SAVE AND LOAD
-save(hr0f, hr12f, hr18f, hr24f, hr36f, hr3f, hr36f, hr6f, hr.merged.f, file="hr.meta.ASXL.f.RData")
+save(hr0f, hr12f, hr18f, hr24f, hr36f, hr3f, hr36f, hr6f, hr.mergedASXL.f, file="hr.meta.ASXL.f.RData")
 #load(file = "hr.meta.ASXL.f.RData)
 #set.seed(123456)
 
