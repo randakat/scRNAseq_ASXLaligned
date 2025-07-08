@@ -1,0 +1,9 @@
+
+name: kallisto_env
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - kallisto=0.48.0
+  - python=3.9

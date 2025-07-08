@@ -1,0 +1,6 @@
+#In terminal
+
+cd /media/bret/Data2/snakemake2
+
+snakemake --use-conda --conda-frontend conda --cores 16 -p
+

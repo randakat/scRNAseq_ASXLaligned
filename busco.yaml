@@ -1,0 +1,9 @@
+
+name: busco_env
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - busco=5.5.0
+  - metaeuk

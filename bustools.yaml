@@ -1,0 +1,9 @@
+
+name: bustools_env
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - bustools
+  - python=3.9

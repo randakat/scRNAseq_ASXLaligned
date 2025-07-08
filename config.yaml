@@ -1,0 +1,11 @@
+transcriptome: transcriptome.fa
+whitelist: 10x_v2_chemistry_whitelist.txt
+lineage: metazoa_odb10
+samples:
+  - CEL230606BP_0_hrs_S22
+  - CEL230606BP_3_hrs_S23
+  - CEL230606BP_6_hrs_S24
+  - CEL230606BP_12_hrs_S25
+  - CEL230606BP_18_hrs_S26
+  - CEL230606BP_24_hrs_S27
+  - CEL230606BP_36_hrs_S28

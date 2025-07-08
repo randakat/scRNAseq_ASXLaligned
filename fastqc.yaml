@@ -1,0 +1,9 @@
+
+name: fastqc_env
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - fastqc=0.12.1
+  - python=3.9
